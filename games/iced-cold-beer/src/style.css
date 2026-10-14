@@ -1,0 +1,127 @@
+:root {
+  --bg: #0b0907;
+  --panel: rgba(20, 15, 10, 0.92);
+  --gold: #ffd23a;
+  --amber: #ff9a1f;
+  --text: #f3e6c8;
+  --dim: #a8987a;
+  --led: #ff3b2a;
+}
+
+html,
+body {
+  background: var(--bg);
+}
+
+#hud {
+  display: none;
+  position: fixed;
+  z-index: 10;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 300px;
+  box-sizing: border-box;
+  padding: 22px 20px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid #3a2d18;
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  user-select: none;
+}
+body.hud-side #hud {
+  display: block;
+}
+
+#hud h1 {
+  margin: 0 0 14px;
+  font: 16px/1.4 'Press Start 2P', monospace;
+  color: var(--gold);
+  text-shadow: 0 0 10px rgba(255, 122, 0, 0.6);
+}
+#hud h2 {
+  margin: 18px 0 6px;
+  font: 10px 'Press Start 2P', monospace;
+  color: var(--amber);
+  letter-spacing: 0.04em;
+}
+#hud p {
+  margin: 4px 0;
+}
+#hud .dim {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.boards {
+  display: flex;
+  gap: 6px;
+}
+#hud button {
+  font: 600 12px system-ui, sans-serif;
+  color: var(--text);
+  background: #2a2014;
+  border: 1px solid #5a4423;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  flex: 1;
+}
+#hud button:hover {
+  background: #3a2c18;
+}
+#hud button.active {
+  background: #6b4a10;
+  border-color: var(--gold);
+  color: #fff;
+}
+#hud button.start {
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px;
+  font: 12px 'Press Start 2P', monospace;
+  background: #8a1d10;
+  border-color: #ff5a3a;
+}
+#hud button.start:hover {
+  background: #a8261a;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  background: #120a08;
+  border: 1px solid #3a1d14;
+  border-radius: 8px;
+}
+.stats dt {
+  color: var(--dim);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  align-self: center;
+}
+.stats dd {
+  margin: 0;
+  text-align: right;
+  font: 13px 'Press Start 2P', monospace;
+  color: var(--led);
+  text-shadow: 0 0 6px rgba(255, 40, 20, 0.7);
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 1px 5px;
+  font: 600 12px ui-monospace, monospace;
+  text-align: center;
+  color: #fff;
+  background: #3b3022;
+  border: 1px solid #6d5734;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}

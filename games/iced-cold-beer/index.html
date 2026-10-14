@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <title>Ice Cold Beer — Arcade</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <aside id="hud">
+      <h1 data-hud="name">Ice Cold Beer</h1>
+      <div class="boards">
+        <button data-board="icb">Ice Cold Beer</button>
+        <button data-board="zeke">Zeke's Peak</button>
+      </div>
+      <dl class="stats">
+        <dt>Score</dt><dd data-hud="score">0</dd>
+        <dt>Bonus</dt><dd data-hud="bonus">0</dd>
+        <dt>Hole</dt><dd data-hud="hole">1</dd>
+        <dt>Ball</dt><dd data-hud="ball">-</dd>
+        <dt>High</dt><dd data-hud="high">0</dd>
+      </dl>
+      <button id="startBtn" class="start">Start</button>
+      <section class="controls">
+        <h2>Joysticks</h2>
+        <p><kbd>W</kbd> / <kbd>S</kbd> left end up / down</p>
+        <p><kbd>↑</kbd> / <kbd>↓</kbd> right end up / down</p>
+        <p><kbd>Space</kbd> start &nbsp; <kbd>M</kbd> mute</p>
+        <p><kbd>1</kbd> / <kbd>2</kbd> switch machine &nbsp; <kbd>H</kbd> hole map</p>
+        <p class="dim">Gamepad: left &amp; right sticks. Touch: drag up/down on each half.</p>
+      </section>
+      <section class="howto">
+        <h2>How to play</h2>
+        <p>Raise and tilt the bar to roll the steel ball up the board and drop it into the flashing hole. Any other hole costs you the ball. Sink it fast for a bigger bonus.</p>
+      </section>
+    </aside>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
