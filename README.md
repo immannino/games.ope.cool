@@ -5,13 +5,14 @@ Small browser games, hosted together on GitHub Pages.
 ```
 site/            static landing page (copied as-is to the site root)
 games/<slug>/    one standalone Vite + LittleJS project per game, served at /<slug>/
+api/             accounts + leaderboards API (Cloudflare Worker + Turso), see api/README.md
 scripts/         local helpers
 ```
 
 ## Local dev
 
 ```sh
-cd games/tinybonk && npm install && npm run dev   # work on one game
+cd games/spice-dreamer && npm install && npm run dev   # work on one game
 ./scripts/build-all.sh && npx serve _site         # preview the whole site as deployed
 ```
 

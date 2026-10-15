@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ope-arcade-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // Secrets (set with `npx wrangler secret put NAME`, or .dev.vars locally):
+  //   TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, BETTER_AUTH_SECRET
+  //   optional: GOOGLE_CLIENT_ID/SECRET, DISCORD_CLIENT_ID/SECRET, RESEND_API_KEY
+  "vars": {
+    "BETTER_AUTH_URL": "https://ope-arcade-api.anthonyjosephmannino.workers.dev",
+    "EMAIL_FROM": "ope.cool arcade <arcade@ope.cool>"
+  }
+}

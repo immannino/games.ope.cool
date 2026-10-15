@@ -1,18 +1,20 @@
 {
-  "name": "tinybonk",
+  "name": "spice-dreamer",
   "version": "1.0.0",
   "description": "",
   "main": "src/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node test/replay.test.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "better-auth": "^1.7.10",
     "littlejsengine": "^1.27.0"
   },
   "devDependencies": {

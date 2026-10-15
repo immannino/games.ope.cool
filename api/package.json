@@ -1,0 +1,21 @@
+{
+  "name": "ope-arcade-api",
+  "version": "1.0.0",
+  "scripts": {
+    "migrate": "node scripts/migrate.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "type": "module",
+  "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "@libsql/kysely-libsql": "^0.4.1",
+    "better-auth": "^1.7.10",
+    "hono": "^4.13.13",
+    "kysely": "^0.29.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261015.1",
+    "wrangler": "^4.151.0"
+  }
+}
