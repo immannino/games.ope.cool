@@ -27,7 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - id: list
-        run: echo "games=$(ls -d games/*/ | xargs -n1 basename | jq -R . | jq -cs .)" >> "$GITHUB_OUTPUT"
+        # only folders that are actually projects, so a stray folder (like a leftover cache) can't break the deploy
+        run: echo "games=$(ls games/*/package.json | xargs -n1 dirname | xargs -n1 basename | jq -R . | jq -cs .)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: discover

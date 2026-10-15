@@ -2,13 +2,75 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Spice Dreamer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Spice Dreamer — ride the spice trail as a giant sandworm</title>
+  <meta name="description" content="A free pixel-art arcade racer: ride the glowing spice trail as a giant sandworm. Roll the mouse wheel to steer, pulse Space to keep pace, and climb the weekly leaderboard on a new course every Sunday.">
+  <link rel="canonical" href="https://games.ope.cool/spice-dreamer/">
+  <meta name="theme-color" content="#1e0b3a">
+  <meta name="color-scheme" content="dark">
+
+  <!-- icons + install -->
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Spice Dreamer">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <!-- link previews (Open Graph is read by iMessage, Slack, Discord, Facebook; twitter:* by X) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="games.ope.cool">
+  <meta property="og:title" content="Spice Dreamer">
+  <meta property="og:description" content="Ride the spice trail as a giant sandworm. A new course every week, with leaderboards. Free in your browser.">
+  <meta property="og:url" content="https://games.ope.cool/spice-dreamer/">
+  <meta property="og:image" content="https://games.ope.cool/spice-dreamer/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Spice Dreamer: a pixel-art sandworm racing along a glowing orange trail across a sunset desert.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Spice Dreamer">
+  <meta name="twitter:description" content="Ride the spice trail as a giant sandworm. A new course every week, with leaderboards.">
+  <meta name="twitter:image" content="https://games.ope.cool/spice-dreamer/og.jpg">
+  <meta name="twitter:image:alt" content="Spice Dreamer: a pixel-art sandworm racing along a glowing orange trail across a sunset desert.">
+
+  <!-- tells search engines this page is a game -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Spice Dreamer",
+    "url": "https://games.ope.cool/spice-dreamer/",
+    "image": "https://games.ope.cool/spice-dreamer/og.jpg",
+    "description": "A free pixel-art arcade racer: ride the glowing spice trail as a giant sandworm, with a new course and leaderboards every week.",
+    "genre": ["Arcade", "Racing", "Endless runner"],
+    "gamePlatform": "Web browser",
+    "applicationCategory": "Game",
+    "operatingSystem": "Any",
+    "playMode": "SinglePlayer",
+    "inLanguage": "en",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "isPartOf": { "@type": "WebSite", "name": "games.ope.cool", "url": "https://games.ope.cool/" }
+  }
+  </script>
+
   <style>
     html, body { margin: 0; height: 100%; background: #1e0b3a; overflow: hidden; }
+    /* readable by search engines and screen readers, invisible on screen (the game draws everything on a canvas) */
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   </style>
 </head>
 <body>
+  <main class="sr">
+    <h1>Spice Dreamer</h1>
+    <p>Ride the glowing spice trail as a giant sandworm across an endless desert. Roll the mouse wheel to steer up and down
+      the trail, and pulse Space to match the road's speed: too slow and you're left behind, too fast and you overshoot.
+      Dodge sand fences and wrecked harvesters, coast across breaks in the trail, and climb the weekly, daily and all-time
+      leaderboards. A new course every Sunday.</p>
+    <p>Music: "Spice Dream" by nic and reuben. Inspired by Black Emperor by BumbleBear Games.</p>
+  </main>
+  <noscript>Spice Dreamer needs JavaScript to run.</noscript>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

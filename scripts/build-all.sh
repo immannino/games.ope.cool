@@ -9,6 +9,7 @@ mkdir -p _site
 cp -r site/. _site/
 
 for dir in games/*/; do
+  [ -f "$dir/package.json" ] || continue # skip anything that isn't a project
   game=$(basename "$dir")
   echo "==> $game"
   (cd "$dir" && npm ci --no-audit --no-fund && npm run build)

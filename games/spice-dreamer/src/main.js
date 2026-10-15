@@ -180,7 +180,8 @@ let watching = null;           // a shared run being replayed: { run (from the A
 // screensaver: the worm rides forever under a turning sky. Open with ?kiosk to start (and stay) in it,
 // pick it in settings, or leave the title screen alone for a while. Any key, click or scroll wakes it.
 const params = new URLSearchParams(location.search);
-const KIOSK = params.has('kiosk');
+const POSTER = params.has('poster');   // the screensaver with just the logo, used to render the share image
+const KIOSK = params.has('kiosk') || POSTER;
 const IDLE_TO_SCREENSAVER = 45;   // seconds on the title screen
 const IDLE_TO_TITLE = 90;         // seconds on the score screen before giving up and heading back
 let lastInput = performance.now(), kioskTicker = 0, kioskBoardsAt = 0;
@@ -1022,6 +1023,12 @@ function updateKiosk()
 
 function drawKiosk()
 {
+  if (POSTER)
+  {
+    drawPixelText(GAME_TITLE, W/2, 28, 4, GOLD, 'center', hex('#5a1a2a'));
+    drawPixelText('THE SPICE MUST FLOW.', W/2, 56, 1, WHITE, 'center');
+    return;
+  }
   // a slow rotation of bragging rights along the top
   const lines = ['THE SPICE MUST FLOW.'];
   for (const [period, label] of [['weekly', 'THIS WEEK'], ['daily', 'TODAY'], ['alltime', 'ALL TIME']])

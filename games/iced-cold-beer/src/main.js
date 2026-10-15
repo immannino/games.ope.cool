@@ -34,6 +34,24 @@ const game = {
 // ---------------------------------------------------------------------------
 // setup
 
+// ?board= picks the machine on load so a link can open straight to it, e.g. ?board=zeke
+const BOARD_ALIASES = {
+  icb: 'icb', ice: 'icb', 'ice-cold-beer': 'icb', 'iced-cold-beer': 'icb', beer: 'icb',
+  zeke: 'zeke', zekes: 'zeke', 'zekes-peak': 'zeke', 'zeke-peak': 'zeke', peak: 'zeke',
+};
+function boardFromUrl() {
+  const raw = (new URLSearchParams(location.search).get('board') || '').toLowerCase().replace(/[^a-z-]/g, '');
+  return BOARD_ALIASES[raw] || 'icb';
+}
+
+// keep the address bar shareable after switching machines
+function syncBoardToUrl(id) {
+  const url = new URL(location.href);
+  if (id === 'icb') url.searchParams.delete('board');
+  else url.searchParams.set('board', id);
+  history.replaceState(null, '', url);
+}
+
 function setBoard(id) {
   const board = BOARDS[id];
   const mpp = metersPerPixel(board);
@@ -62,6 +80,7 @@ function setBoard(id) {
   sim.feedX = sim.feedHole ? sim.feedHole.x : board.feedX * mpp;
   document.querySelectorAll('[data-board]').forEach((b) => b.classList.toggle('active', b.dataset.board === id));
   document.title = `${board.name} — Arcade`;
+  syncBoardToUrl(id);
   setState('attract');
   game.ballNum = 0;
   game.score = 0;
@@ -166,7 +185,7 @@ function readInput() {
 function gameInit() {
   sfx = makeSfx();
   loadHigh();
-  setBoard(new URLSearchParams(location.search).get('board') === 'zeke' ? 'zeke' : 'icb');
+  setBoard(boardFromUrl());
   setupTouch();
   document.querySelectorAll('[data-board]').forEach((b) =>
     b.addEventListener('click', () => { if (b.dataset.board !== game.boardId) setBoard(b.dataset.board); b.blur(); }));
@@ -317,6 +336,16 @@ function gameRender() {
   view.drawTargetLamp(ctx, lampHole, lampLevel, t);
   if (showHoles) view.drawHoleDebug(ctx, sim.holes, sim.targets);
 
+  // score windows and lamps are printed on the playfield, so the poles, bar and ball pass in front
+  view.drawDisplays(ctx, {
+    ballNum: game.ballNum || '',
+    bonus: game.bonus,
+    score: game.score,
+    ballOnBar: game.state === 'play' && sim.ball && sim.ball.onBar,
+    gameOver: game.state === 'over' || game.state === 'attract',
+    playing: !['attract', 'over'].includes(game.state),
+  }, t);
+
   view.drawPoles(ctx, sim);
   view.drawBarShadow(ctx, sim);
   const ball = sim.ball;
@@ -329,15 +358,6 @@ function gameRender() {
   if (ball && ballBehindBar) view.drawBall(ctx, ball, sim, dpr, lampHole, lampLevel);
   view.drawBar(ctx, sim);
   if (ball && !ballBehindBar) view.drawBall(ctx, ball, sim, dpr, lampHole, lampLevel);
-
-  view.drawDisplays(ctx, {
-    ballNum: game.ballNum || '',
-    bonus: game.bonus,
-    score: game.score,
-    ballOnBar: game.state === 'play' && ball && ball.onBar,
-    gameOver: game.state === 'over' || game.state === 'attract',
-    playing: !['attract', 'over'].includes(game.state),
-  }, t);
 
   drawMessages(ctx);
   updateHud();
