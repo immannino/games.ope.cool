@@ -2,7 +2,7 @@
 // Side view: the camera scrolls along at the road's pace; the worm moves freely inside the view.
 // Two inputs only: the mouse wheel slides the worm up / down the road, Space is the throttle.
 // Slower than the road and it drifts left, faster and it drifts right. Leave the screen, leave the trail
-// or hit a fence and the run is over. A new course every week.
+// or run into a line of Fremen and the run is over. A new course every week.
 
 import {
   engineInit, vec2, rgb, Sound,
@@ -12,13 +12,15 @@ import {
   clamp, lerp, rand,
 } from 'littlejsengine';
 import {
-  DT, LANES, METERS, START_REL, BACK_LIMIT, FRONT_LIMIT, STEER_UNITS, MAX_STEER, FIRST_FENCE, STAGES,
+  DT, LANES, METERS, START_REL, STEER_UNITS, MAX_STEER, FIRST_FREMEN, STAGES,
+  PPU, depthScale, HEAD_R, MIN_VIEW_W, MAX_VIEW_W, headScreenOffset,
   approach, weekNumber, seededRandom, createCourse, createRun, stepRun, trailLane, trailWidth, breakAt,
-  createRecorder, record, encodeReplay, decodeReplay,
+  createRecorder, record, encodeReplay, decodeReplay, fremenLane,
 } from './sim.js';
 import { getAccount, cachedAccount, submitRun, getBoards, getRun, shareUrl } from './arcade.js';
 import { openAccountPanel } from './account-ui.js';
 import { openCredits } from './credits.js';
+import { touch, touchFirst, takeSteerPixels } from './touch.js';
 import { skyAt, sunAt, moonAt, localTimeOfDay, moonPhase } from './sky.js';
 
 const GAME_TITLE = 'SPICE DREAMER';
@@ -26,14 +28,27 @@ const GAME_TITLE = 'SPICE DREAMER';
 ///////////////////////////////////////////////////////////////////////////////
 // screen & projection — everything is drawn in 320x180 pixel space, y down
 
-const W = 320, H = 180;
+const H = 180;
+// the view is always 180 pixels tall and stretches wider to fill wide screens: phones, wide windows and
+// 21:9 ultrawide monitors. Capped at 480 (about 2.67:1); past that the extra width would just be desert the
+// worm can never reach, so 32:9 monitors get slim bars. Narrower screens get the original 320 with bars
+// top and bottom. The width also decides where the worm's head leaves the screen, so it's part of each run's
+// rules: it's locked while a run is going and a resize (or turning a phone) applies once the run is over.
+const MIN_W = MIN_VIEW_W, MAX_W = MAX_VIEW_W;
+let W = MIN_W, fitPending = false;
+function fitView()
+{
+  if (typeof state != 'undefined' && (state == 'play' || state == 'pause')) return fitPending = true;
+  fitPending = false;
+  W = clamp(Math.round(H*innerWidth/innerHeight/2)*2, MIN_W, MAX_W); // even, for the 2px-column layers
+  setCanvasFixedSize(vec2(W, H));
+}
+addEventListener('resize', fitView);
 const HORIZON = 78;           // screen y of the horizon
-const NEAR_Y = 170, FAR_Y = 100;
-const PPU = 5;                // pixels per world unit at lane 0
-const BACK_WARN = -23, FRONT_WARN = 23;  // the worm's screen limits themselves live in sim.js
+const NEAR_Y = 176, FAR_Y = 86;   // lanes spread over most of the ground, so the trail has room to roam
+const EDGE_WARN = 44;         // pixels from the screen edge where the head starts to set off warnings
 
 const groundY = L => NEAR_Y - L*(NEAR_Y - FAR_Y)/LANES;
-const depthScale = L => 1 - L*.01;
 let camX = 0;
 const screenX = (x, L) => W/2 + (x - camX)*PPU*depthScale(L);
 
@@ -44,7 +59,7 @@ const MAX_SPEED = 60;          // only used to normalize effects
 const WHEEL_STEP = 2;         // lanes per standard wheel notch (100px of deltaY)
 const KEY_STEER = 14;         // lanes/sec with arrow keys
 const KMH = METERS*3.6;
-const SEGMENTS = 24, SEG_SPACING = .95, HEAD_R = 1.7;
+const SEGMENTS = 24, SEG_SPACING = .95;
 
 ///////////////////////////////////////////////////////////////////////////////
 // palette — sunset desert
@@ -56,7 +71,8 @@ const SUN_TOP = hex('#fff2a8'), SUN_BOT = hex('#ff6f6a');
 const TRAIL_EDGE = hex('#c8401c'), TRAIL = hex('#ff7a1c'), TRAIL_CORE = hex('#ffc04a'), TRAIL_DASH = hex('#fff0a0');
 const ROCK = hex('#5e3b30'), ROCK_HI = hex('#86574a'), ROCK_DK = hex('#2e1a16');
 const BONE = hex('#ecdfc2'), BONE_DK = hex('#9c8a70');
-const WOOD = hex('#8a5630'), WOOD_HI = hex('#b8803e'), WOOD_DK = hex('#3a2014');
+const ROBES = ['#7a5a3c', '#6a4a32', '#8a6a48', '#5a4434', '#94704c'].map(hex);
+const STILLSUIT = hex('#2a3038'), FREMEN_EYE = hex('#5ac8ff'), WOOD_STAFF = hex('#6a4a2a');
 const METAL = hex('#6a6470'), METAL_HI = hex('#9a94a0'), METAL_DK = hex('#3a3640');
 const WORM_A = hex('#8a5a3c'), WORM_B = hex('#a06c48'), WORM_HI = hex('#c89464'), WORM_DK = hex('#3e2418');
 const MAW = hex('#2a0a08'), MAW_IN = hex('#8a1c12'), TOOTH = hex('#fff4dc');
@@ -177,6 +193,23 @@ let toast = '', toastTime = 0;
 let uiOpen = false;            // the account panel is up; the game ignores input meanwhile
 let watching = null;           // a shared run being replayed: { run (from the API), inputs, seg, left }
 
+// easter egg: now and then a Fremen leaps onto the worm and rides it. At each line, riders usually hop off,
+// a few stay aboard, and sometimes another climbs on, up to a crew of ten.
+// Purely for show (browser randomness, not the course's), so it never changes a run or its replay.
+// (in dev builds, ?rider makes every line trigger it, for testing; ?rider=N starts with N aboard, default 1)
+const FORCE_RIDER = import.meta.env.DEV && new URLSearchParams(location.search).has('rider');
+const RIDE_CHANCE = FORCE_RIDER ? 1 : .15;   // a new rider leaps aboard at a line
+const LOAD_RIDER_CHANCE = .05;                    // the game starts with one already aboard
+const HOP_OFF_CHANCE = .85;                       // each rider jumps off at a line
+const MAX_RIDERS = 10, HOP_TIME = .5;
+const RIDER_SCALE = 1.2; // a touch bigger than the crowd so they read on the worm's back
+// riders keep their own spot on the worm's back (seat 0 is just behind the head, each next one further back)
+const FORCE_COUNT = FORCE_RIDER ? +(new URLSearchParams(location.search).get('rider') || 1) : 0;
+let riders = FORCE_RIDER ? Array.from({ length: Math.min(MAX_RIDERS, FORCE_COUNT) }, (_, seat) => ({ id: Math.random()*99, seat }))
+  : Math.random() < LOAD_RIDER_CHANCE ? [{ id: Math.random()*99, seat: 0 }] : []; // some page loads start with one aboard
+let hops = [];                 // Fremen mid-leap: { id, seat, on, x, L, t }
+let hoppers = [];              // Fremen who got off, left standing in the sand: { x, L, id }
+
 // screensaver: the worm rides forever under a turning sky. Open with ?kiosk to start (and stay) in it,
 // pick it in settings, or leave the title screen alone for a while. Any key, click or scroll wakes it.
 const params = new URLSearchParams(location.search);
@@ -200,7 +233,7 @@ let menu = null;
 // background music: one looping track under the whole game, loudest while you ride.
 // An <audio> element streams it, so the page doesn't wait on decoding a few megabytes up front.
 const music = Object.assign(new Audio(import.meta.env.BASE_URL + 'spice-dream.mp3'), { loop: true, preload: 'auto', volume: 0 });
-if (import.meta.env.DEV) { window.__music = music; window.__state = () => state; }
+if (import.meta.env.DEV) { window.__music = music; window.__state = () => state; window.__run = () => ({ L: run.L, targetL: run.targetL, speed: run.speed, throttle: run.throttle, dead: run.dead, reason: run.deathReason, head: headScreenOffset(run), viewW: run.viewW, W }); window.__egg = () => ({ riders: riders.length, hopsOn: hops.filter(h => h.on).length, hopsOff: hops.filter(h => !h.on).length, hoppers: hoppers.length, meters: Math.round(run.x*METERS), dead: run.dead }); }
 // Most browsers block sound until the player clicks or presses something. Try anyway (a kiosk browser
 // launched with autoplay allowed will just start), and if it's blocked, try again after the first input.
 let musicBlocked = false, musicStarting = false;
@@ -237,17 +270,23 @@ addEventListener('wheel', e =>
 function newGame(mode='play')
 {
   const attract = mode == 'attract';
-  course = createCourse(mode == 'watch' ? watching.run.week : WEEK);
-  run = createRun(course, { startMeters: mode == 'play' ? START_METERS : 0, attract });
-  rec = createRecorder();
-  steerCarry = 0;
+  let viewW = W;
   if (mode == 'watch')
   {
-    watching.inputs = decodeReplay(watching.run.replay);
+    // a shared run plays out on the screen width it was ridden on
+    const replay = decodeReplay(watching.run.replay);
+    watching.inputs = replay.runs;
     watching.seg = 0;
     watching.left = watching.inputs[0]?.[0] || 0;
+    viewW = replay.viewW;
   }
+  course = createCourse(mode == 'watch' ? watching.run.week : WEEK);
+  run = createRun(course, { startMeters: mode == 'play' ? START_METERS : 0, attract, viewW });
+  rec = createRecorder(W);
+  steerCarry = 0;
   worm = { history: [], headH: 1.9 };
+  hops = [];                   // riders (if any) stay aboard from run to run
+  hoppers = [];
   for (let i = 60; i > 0; i--)
     worm.history.push({ x: run.x - i*.5, L: trailLane(course, run.x - i*.5) });
   sceneryRand = seededRandom(course.week*3 + 3);
@@ -358,7 +397,24 @@ function updateMenu()
     item.act(keyWasPressed('ArrowLeft') ? -1 : 1);
     sfx.blip.play(undefined, .5, 1.3);
   }
-  else if (stateTime > .1 && (keyWasPressed('Space') || keyWasPressed('Enter') || mouseWasPressed(0)))
+  else if (stateTime > .1 && mouseWasPressed(0) && menu.layout)
+  {
+    // tap / click an item to pick it; on items like "< THIS WEEK >", the left or right side flips it that way
+    const px = mousePos.x, py = H - mousePos.y, { y, spacing } = menu.layout;
+    const i = Math.round((py - y - 2)/spacing);
+    if (i >= 0 && i < menu.items.length && Math.abs(py - (y + i*spacing + 2)) <= spacing/2)
+    {
+      menu.sel = i;
+      sfx.select.play();
+      menu.items[i].cycle ? menu.items[i].act(px < W/2 ? -1 : 1) : menu.items[i].act();
+    }
+    else if (!touch.used) // a desktop click elsewhere still picks the highlighted item, like Space
+    {
+      sfx.select.play();
+      item.act();
+    }
+  }
+  else if (stateTime > .1 && (keyWasPressed('Space') || keyWasPressed('Enter')))
   {
     sfx.select.play();
     item.act();
@@ -367,6 +423,7 @@ function updateMenu()
 
 function drawMenu(m, y, spacing=12)
 {
+  m.layout = { y, spacing }; // remembered so taps can find the item under the finger
   m.items.forEach((item, i) =>
   {
     const s = item.label(), sel = i == m.sel;
@@ -384,7 +441,7 @@ function drawMenu(m, y, spacing=12)
 ///////////////////////////////////////////////////////////////////////////////
 // obstacles
 
-// harmless roadside scenery for depth (fences and wrecks are part of the run, in sim.js)
+// harmless roadside scenery for depth (Fremen lines and wrecks are part of the run, in sim.js)
 function spawnScenery()
 {
   while (nextSceneryX < camX + 75)
@@ -392,7 +449,7 @@ function spawnScenery()
     const x = nextSceneryX, c = trailLane(course, x), w = trailWidth(course, x);
     const r = sceneryRand(), kind = r < .5 ? 'boulder' : r < .75 ? 'ribs' : 'spire';
     const L = c + (sceneryRand() < .5 ? -1 : 1)*(w/2 + sceneryRand(2.5, 8));
-    scenery.push({ kind, x, L: clamp(L, -2, LANES + 4), r: kind == 'boulder' ? 1.2 : kind == 'ribs' ? .9 : .8, seed: sceneryRand(99) });
+    scenery.push({ kind, x, L: clamp(L, -2, LANES + 2), r: kind == 'boulder' ? 1.2 : kind == 'ribs' ? .9 : .8, seed: sceneryRand(99) });
     nextSceneryX += sceneryRand(6, 20);
   }
   scenery = scenery.filter(o => o.x > camX - 80);
@@ -466,15 +523,21 @@ function updateRun()
   else if (recording && !uiOpen)
   {
     let lanes = clamp(wheelAccum/100*WHEEL_STEP*sensitivity*(invert ? 1 : -1), -5, 5);
+    // a thumb dragging on the left half moves the worm with it, lane for lane on screen
+    const canvasScale = (document.querySelector('canvas')?.clientHeight || H)/H;
+    lanes += takeSteerPixels()/(canvasScale*(NEAR_Y - FAR_Y)/LANES)*sensitivity;
     if (keyIsDown('ArrowUp') || keyIsDown('KeyW')) lanes += KEY_STEER*DT;
     if (keyIsDown('ArrowDown') || keyIsDown('KeyS')) lanes -= KEY_STEER*DT;
     const units = lanes*STEER_UNITS + steerCarry;
     steer = clamp(Math.round(units), -MAX_STEER, MAX_STEER);
     steerCarry = clamp(units - steer, -1, 1);
-    throttleIn = keyIsDown('Space') || mouseIsDown(0);
+    // while fingers are down, only the right-half finger counts (the browser's emulated mouse would also
+    // fire for the steering thumb)
+    throttleIn = keyIsDown('Space') || (touch.active ? touch.throttle : mouseIsDown(0));
     record(rec, throttleIn, steer);
   }
 
+  if (!recording) takeSteerPixels();
   const events = stepRun(run, throttleIn, steer);
   throttle = run.throttle;
   camX = run.camX;
@@ -525,8 +588,54 @@ function updateRun()
   }
 }
 
+function meetFremenLine(o)
+{
+  // most riders jump off and join the crowd a row behind the line, one after another
+  const leaving = riders.filter(() => Math.random() < HOP_OFF_CHANCE);
+  leaving.forEach((r, j) =>
+  {
+    const x = run.x + 2 + j*1.4;
+    hops.push({ id: r.id, seat: r.seat, on: false, x, L: fremenLane(course, x, o.side) + o.side*.9, t: -j*.12 });
+  });
+  riders = riders.filter(r => !leaving.includes(r));
+  if (leaving.length)
+    popup(leaving.length > 1 ? leaving.length + ' RIDERS HOP OFF' : run.attract ? 'A RIDER HOPS OFF' : 'YOUR RIDER HOPS OFF', SAND_SPRAY, 1, 1.4);
+
+  // and now and then one steps out of the line just ahead and leaps aboard, leaving a gap
+  const aboard = riders.length + hops.filter(h => h.on).length;
+  if (aboard < MAX_RIDERS && Math.random() < RIDE_CHANCE)
+  {
+    const k = Math.ceil((run.x + 4)/FREMEN_SPACING), x = k*FREMEN_SPACING;
+    if (x > o.x1) return;
+    const taken = new Set([...riders, ...hops.filter(h => h.on)].map(r => r.seat));
+    let seat = 0;
+    while (taken.has(seat)) seat++;
+    o.missing = k;
+    hops.push({ id: k + o.seed, seat, on: true, x, L: fremenLane(course, x, o.side), t: 0 });
+    popup(aboard ? 'ANOTHER FREMEN CLIMBS ABOARD!' : 'A FREMEN HITCHES A RIDE!', SAND_SPRAY, 1, 1.6);
+  }
+}
+
 function updateWorld()
 {
+  // passing the start of each Fremen line is a chance for the rider easter egg
+  // the screensaver and title worm pick up and drop off riders too, so it's a little sandbox to watch
+  if (state != 'pause')
+    for (const o of run.hazards)
+      if (o.kind == 'fremen' && !o.met && run.x >= o.x0 - 1 && !run.dead)
+      {
+        o.met = true; // marks it for this easter egg only; the sim never reads it
+        meetFremenLine(o);
+      }
+  for (const h of hops)
+    if ((h.t += DT) >= HOP_TIME)
+    {
+      if (h.on) riders.push({ id: h.id, seat: h.seat });
+      else hoppers.push({ x: h.x, L: h.L, id: h.id });
+    }
+  hops = hops.filter(h => h.t < HOP_TIME);
+  hoppers = hoppers.filter(f => f.x > camX - 60);
+
   spawnScenery();
 
   // sand spray where the head and body break the surface
@@ -646,7 +755,7 @@ function drawSky()
   for (let i = 0; i < 6; i++)
   {
     const span = W + 120;
-    const x = ((hash(i)*span - parallaxShift(.015) - clock*2) % span + span) % span - 60;
+    const x = ((hash(i)*span - parallaxShift(.03) - clock*2) % span + span) % span - 60;
     const y = 10 + hash(i + 7)*40, w = 30 + hash(i + 3)*50;
     rect(x, y, w, 1, sky[5].scale(1.1, 1));
     rect(x + 8, y + 2, w*.6, 1, sky[4].scale(1.2, 1));
@@ -744,45 +853,97 @@ function drawTrail(glow=0)
 }
 
 const project = (x, L, h=0) => vec2(screenX(x, L), groundY(L) - h*PPU*depthScale(L));
-const FENCE_STEP = .7, FENCE_H = 2.6;
+// Fremen lines: Black Emperor's guardrails, as hooded figures in stillsuits standing shoulder to shoulder
+// along the trail's edge. Each figure is its own painter's item so the worm can pass in front or behind.
+const FREMEN_SPACING = 1.15;
+let eyeGlints = []; // collected while drawing, re-lit after the night shade so the blue eyes glow in the dark
 
-// one post of a sand fence, plus the slats running to the next nearer post
-function drawFencePost(o, L, nextL, isInner)
+function fremenItems(o)
 {
-  const u = PPU*depthScale(L), base = project(o.x, L), top = project(o.x, L, FENCE_H);
-  if (base.x < -20 || base.x > W + 20) return;
-  if (nextL != undefined)
-    for (const [h, color] of [[FENCE_H*.82, WOOD_HI], [FENCE_H*.45, WOOD]])
-    {
-      const a = project(o.x, L, h), b = project(o.x, nextL, h), t = Math.max(2, u*.32);
-      poly([vec2(a.x, a.y - 1), vec2(b.x, b.y - 1), vec2(b.x, b.y + t), vec2(a.x, a.y + t)], WOOD_DK);
-      poly([vec2(a.x, a.y), vec2(b.x, b.y), vec2(b.x, b.y + t - 1), vec2(a.x, a.y + t - 1)], color);
-    }
-  const pw = Math.max(2, Math.round(u*.5));
-  rect(base.x - pw/2 - 1, top.y - 1, pw + 2, base.y - top.y + 1, WOOD_DK);
-  rect(base.x - pw/2, top.y, pw, base.y - top.y, WOOD);
-  rect(base.x - pw/2, top.y, 1, base.y - top.y, WOOD_HI);
-  if (isInner) // red flag marks the end you steer around
+  const items = [];
+  const from = Math.max(o.x0, camX - 45), to = Math.min(o.x1, camX + 45);
+  for (let x = Math.ceil(from/FREMEN_SPACING)*FREMEN_SPACING; x <= to; x += FREMEN_SPACING)
   {
-    const flap = Math.sin(clock*12 + o.x)*u*.15;
-    poly([vec2(top.x, top.y - u*.6), vec2(top.x + u*.9, top.y - u*.35 + flap), vec2(top.x, top.y - u*.05)], WARN);
-    rect(top.x - .5, top.y - u*.7, 1, u*.7, WOOD_DK);
-  }
-}
-
-function fenceItems(o)
-{
-  const items = [], n = Math.max(1, Math.round((o.L1 - o.L0)/FENCE_STEP));
-  const inner = o.side > 0 ? 0 : n;
-  // dark band on the ground across the blocked lanes, so the gap reads at a glance
-  items.push({ L: o.L1 + .01, draw: () => poly([
-    project(o.x - .7, o.L1), project(o.x + .7, o.L1), project(o.x + .7, o.L0), project(o.x - .7, o.L0)], BLACK.scale(0, .35)) });
-  for (let k = 0; k <= n; k++)
-  {
-    const L = lerp(o.L0, o.L1, k/n), nextL = k ? lerp(o.L0, o.L1, (k - 1)/n) : undefined;
-    items.push({ L, draw: () => drawFencePost(o, L, nextL, k == inner) });
+    if (Math.round(x/FREMEN_SPACING) === o.missing) continue; // the one who leapt onto the worm
+    const L = fremenLane(course, x, o.side), id = Math.round(x/FREMEN_SPACING) + o.seed;
+    items.push({ L, draw: () => drawFremen(x, L, id) });
   }
   return items;
+}
+
+function drawFremen(x, L, id)
+{
+  const u = PPU*depthScale(L), base = project(x, L);
+  if (base.x < -10 || base.x > W + 10) return;
+  rect(base.x - u*.5, base.y - 1, u, 2, BLACK.scale(0, .3)); // shadow
+  drawFremenFigure(base.x + Math.sin(clock*2 + hash(id)*9)*u*.06, base.y, u, id);
+}
+
+// one hooded Fremen standing with their feet at (fx, baseY), u pixels to a world unit
+function drawFremenFigure(fx, baseY, u, id, staff=true)
+{
+  const base = { y: baseY }, h = hash(id), tall = .9 + hash(id*3.1)*.25;
+  const top = base.y - 3*u*tall;
+  const robe = ROBES[Math.floor(h*ROBES.length)], dark = robe.scale(.7, 1);
+  // cloak: wide at the hem, narrow at the shoulders
+  poly([vec2(fx - u*.48, base.y), vec2(fx + u*.48, base.y), vec2(fx + u*.3, top + u*.7), vec2(fx - u*.3, top + u*.7)], dark);
+  poly([vec2(fx - u*.38, base.y), vec2(fx + u*.36, base.y), vec2(fx + u*.24, top + u*.75), vec2(fx - u*.26, top + u*.75)], robe);
+  // hood and stillsuit mask
+  blob(fx, top + u*.45, u*.34 + 1, base.y, dark);
+  blob(fx, top + u*.45, u*.34, base.y, robe);
+  rect(fx - u*.2, top + u*.38, u*.4, u*.3, STILLSUIT);
+  // the blue-within-blue eyes of the spice
+  const ex = Math.round(fx - u*.12), ey = Math.round(top + u*.42);
+  rect(ex, ey, 1, 1, FREMEN_EYE);
+  rect(ex + Math.max(2, Math.round(u*.22)), ey, 1, 1, FREMEN_EYE);
+  eyeGlints.push(ex, ey, ex + Math.max(2, Math.round(u*.22)));
+  if (staff && hash(id*7.7) < .22) // now and then one carries a thumper staff
+    rect(fx + u*.42, top - u*.3, 1, base.y - top + u*.3, WOOD_STAFF);
+}
+
+// a 1px line between two screen points
+function line1(a, b, color)
+{
+  poly([a, b, vec2(b.x + 1, b.y), vec2(a.x + 1, a.y)], color);
+}
+
+// where a rider stands on the worm's back: seat 0 a few segments behind the head, each next seat two further back
+function riderSeat(seat)
+{
+  const seg = i =>
+  {
+    const x = run.x - i*SEG_SPACING, L = laneAt(x), r = lerp(1.5, .5, Math.pow(i/SEGMENTS, 1.2));
+    return { x, L, top: project(x, L, bodyHeight(i, x) + r*.9), u: PPU*depthScale(L) };
+  };
+  const i = Math.min(4 + seat*2, SEGMENTS - 1), stand = seg(i), hookTo = seg(i - 2);
+  return { x: stand.top.x, y: stand.top.y, u: stand.u, hook: hookTo.top };
+}
+
+// the riders, and anyone mid-leap on or off
+function drawRiders()
+{
+  if (!run.dead)
+    for (const r of [...riders].sort((a, b) => b.seat - a.seat)) // back of the worm first
+    {
+      const seat = riderSeat(r.seat), u = seat.u*RIDER_SCALE, lean = Math.sin(clock*7 + r.seat)*u*.08;
+      // a maker hook dug into the worm's rings, then the rider leaning back on it
+      line1(vec2(seat.x + lean + u*.3, seat.y - u*1.5), seat.hook, WOOD_STAFF);
+      drawFremenFigure(seat.x + lean, seat.y, u, r.id, false);
+    }
+  for (const h of hops)
+  {
+    if (h.t < 0) // still aboard, waiting their turn to jump
+    {
+      const seat = riderSeat(h.seat), u = seat.u*RIDER_SCALE;
+      drawFremenFigure(seat.x, seat.y, u, h.id, false);
+      continue;
+    }
+    const ground = project(h.x, h.L), seat = riderSeat(h.seat);
+    const a = h.on ? ground : seat, b = h.on ? seat : ground;
+    const p = smooth(clamp(h.t/HOP_TIME));
+    const u = lerp(h.on ? PPU*depthScale(h.L) : seat.u*RIDER_SCALE, h.on ? seat.u*RIDER_SCALE : PPU*depthScale(h.L), p);
+    drawFremenFigure(lerp(a.x, b.x, p), lerp(a.y, b.y, p) - Math.sin(p*Math.PI)*20, u, h.id, false);
+  }
 }
 
 // a wrecked spice harvester lying across the middle of the trail
@@ -896,9 +1057,9 @@ function drawMaw(sx, sy, R, gy)
 function drawScene()
 {
   drawSky();
-  drawRidge(.03, u => mesaHeight(u, 70, 30, .6), pal.mesaFar);
-  drawRidge(.08, u => mesaHeight(u + 999, 44, 17, .45), pal.mesaMid);
-  drawRidge(.18, u => 4 + 2.5*Math.sin(u*.031) + 1.5*Math.sin(u*.083), pal.duneFar, pal.duneTop);
+  drawRidge(.07, u => mesaHeight(u, 70, 30, .6), pal.mesaFar);
+  drawRidge(.17, u => mesaHeight(u + 999, 44, 17, .45), pal.mesaMid);
+  drawRidge(.34, u => 4 + 2.5*Math.sin(u*.031) + 1.5*Math.sin(u*.083), pal.duneFar, pal.duneTop);
   drawGround();
   drawTrail();
 
@@ -906,7 +1067,7 @@ function drawScene()
   const items = [];
   for (const o of [...run.hazards, ...scenery])
   {
-    if (o.kind == 'fence') items.push(...fenceItems(o));
+    if (o.kind == 'fremen') items.push(...fremenItems(o));
     else if (o.kind == 'wreck') items.push({ L: (o.L0 + o.L1)/2, draw: () => drawWreck(o) });
     else items.push({ L: o.L, draw: () => drawObstacle(o) });
   }
@@ -921,22 +1082,38 @@ function drawScene()
   // head shadow
   const hs = depthScale(run.L);
   rect(screenX(run.x, run.L) - HEAD_R*PPU*hs, groundY(run.L) - 1, HEAD_R*PPU*hs*2, 2, BLACK.scale(0, .3));
-  items.sort((a, b) => b.L - a.L);
-  for (const it of items) it.draw();
-
-  // night shades everything on the ground, then the spice trail glows back through it
+  // night: shade the ground and let the spice trail glow back through it, all before anything standing
+  // on the ground is drawn (so the glow never paints over the worm), then shade those lightly too
   const dark = 1 - pal.light;
   if (dark > .05)
   {
-    rect(0, HORIZON + 1, W, H - HORIZON, rgb(.04, .03, .14, dark*.55));
+    rect(0, HORIZON + 1, W, H - HORIZON, rgb(.04, .03, .14, dark*.4));
     drawTrail(dark);
   }
+
+  for (const f of hoppers) items.push({ L: f.L, draw: () => drawFremen(f.x, f.L, f.id) });
+  items.sort((a, b) => b.L - a.L);
+  eyeGlints = [];
+  for (const it of items) it.draw();
+  drawRiders();
+
+  if (dark > .05)
+  {
+    rect(0, HORIZON + 1, W, H - HORIZON, rgb(.04, .03, .14, dark*.3));
+    for (let i = 0; i < eyeGlints.length; i += 3) // Fremen eyes shine in the dark
+    {
+      const glow = FREMEN_EYE.scale(1, Math.min(1, dark*1.4));
+      rect(eyeGlints[i], eyeGlints[i + 1], 1, 1, glow);
+      rect(eyeGlints[i + 2], eyeGlints[i + 1], 1, 1, glow);
+    }
+  }
+
 
   for (const p of particles)
     rect(screenX(p.x, p.L), groundY(p.L) - p.h*PPU*depthScale(p.L), p.size, p.size, p.color);
 
   // fast foreground dune lip
-  const shift = parallaxShift(1.5);
+  const shift = parallaxShift(2.3);
   for (let x = 0; x < W; x += 2)
   {
     const u = Math.floor((x + shift)/2)*2;
@@ -971,15 +1148,16 @@ function drawHud()
       drawPixelText(nb.x0 > run.x ? 'TRAIL BREAK - BUILD SPEED!' : 'DEEP SAND!', W/2, 66, 2, GOLD, 'center');
 
     // edge warnings as the worm drifts toward either side of the screen
-    const rel = run.x - camX;
-    const back = (BACK_WARN - rel)/(BACK_WARN - BACK_LIMIT), front = (rel - FRONT_WARN)/(FRONT_LIMIT - FRONT_WARN);
+    // how close the head is to leaving the screen on either side (it has to get all the way off to die)
+    const head = headScreenOffset(run), edge = run.viewW/2;
+    const back = (head - (-edge + EDGE_WARN))/-EDGE_WARN, front = (head - (edge - EDGE_WARN))/EDGE_WARN;
     if (back > 0 || front > 0)
     {
       const left = back > 0, a = Math.min(1, left ? back : front)*(clock % .25 < .15 ? 1 : .5);
       for (let y = 40; y < H - 12; y += 12)
         drawPixelText(left ? '<' : '>', left ? 3 : W - 3, y, 2, WARN.scale(1, a), left ? 'left' : 'right');
       if (clock % .3 < .18 && run.offTime <= 0)
-        drawPixelText(left ? 'TOO SLOW! HOLD SPACE' : 'TOO FAST! EASE OFF', W/2, 52, 2, WARN, 'center');
+        drawPixelText(left ? (touchFirst() ? 'TOO SLOW! HOLD RIGHT SIDE' : 'TOO SLOW! HOLD SPACE') : 'TOO FAST! EASE OFF', W/2, 52, 2, WARN, 'center');
     }
   }
 
@@ -992,18 +1170,38 @@ function drawHud()
 
   // first-run coaching, gone once you're past the basics
   const m = run.x*METERS;
-  const hint = m < 260 ? 'PULSE SPACE TO MATCH THE ROAD - STAY ON SCREEN'
+  if (touch.used && state == 'play')
+  {
+    // where the thumbs go, and a pause button since there's no Esc key
+    const b = PAUSE_BTN, faint = WHITE.scale(1, .35);
+    rect(b.x, b.y, b.w, b.h, BLACK.scale(0, .35));
+    rect(b.x + 4, b.y + 3, 2, b.h - 6, WHITE.scale(1, .7));
+    rect(b.x + 8, b.y + 3, 2, b.h - 6, WHITE.scale(1, .7));
+    drawPixelText('DRAG TO STEER', 6, H - 10, 1, touch.active && !touch.throttle ? GOLD.scale(1, .6) : faint, 'left', null);
+    drawPixelText('HOLD TO GO', W - 6, H - 10, 1, touch.throttle ? GOLD.scale(1, .6) : faint, 'right', null);
+  }
+  const hint = m < 260 ? (touchFirst() ? 'HOLD THE RIGHT SIDE TO GO - PULSE IT TO MATCH THE ROAD' : 'PULSE SPACE TO MATCH THE ROAD - STAY ON SCREEN')
     : m < 380 ? 'FURTHER RIGHT = LESS TIME TO REACT'
-    : m < FIRST_FENCE + 20 ? 'FENCE AHEAD - STEER AROUND THE RED FLAG' : '';
+    : m > FIRST_FREMEN - 60 && m < FIRST_FREMEN + 120 ? "DON'T TOUCH THE FREMEN LINES" : '';
   if (hint && state == 'play' && best < 1500)
   {
     drawPixelText(hint, W/2, H - 26, 1, WHITE, 'center');
-    if (m < 260) drawPixelText('SCROLL TO FOLLOW THE GLOWING TRAIL', W/2, H - 18, 1, WHITE, 'center');
+    if (m < 260) drawPixelText(touchFirst() ? 'DRAG THE LEFT SIDE TO FOLLOW THE GLOWING TRAIL' : 'SCROLL TO FOLLOW THE GLOWING TRAIL', W/2, H - 18, 1, WHITE, 'center');
   }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // end of run, accounts and leaderboards
+
+// touch screens get a pause button in the top left corner
+const PAUSE_BTN = { x: 4, y: 4, w: 14, h: 12 };
+function pauseTapped()
+{
+  if (!touch.used || !mouseWasPressed(0)) return false;
+  const px = mousePos.x, py = H - mousePos.y, b = PAUSE_BTN;
+  return px >= b.x - 4 && px <= b.x + b.w + 4 && py >= b.y - 4 && py <= b.y + b.h + 4;
+}
+addEventListener('visibilitychange', () => { if (document.hidden && state == 'play') setState('pause'); });
 
 function updateKiosk()
 {
@@ -1040,7 +1238,7 @@ function drawKiosk()
   const fade = Math.min(1, (kioskTicker % 6)*2, (6 - kioskTicker % 6)*2);
   drawPixelText(line, W/2, 8, 1, GOLD.scale(1, fade), 'center');
   drawPixelText(GAME_TITLE, 6, H - 12, 1, WHITE.scale(1, .55), 'left');
-  if (clock % 2 < 1.4) drawPixelText('PRESS SPACE', W - 6, H - 12, 1, WHITE.scale(1, .55), 'right');
+  if (clock % 2 < 1.4) drawPixelText(touchFirst() ? 'TAP TO RIDE' : 'PRESS SPACE', W - 6, H - 12, 1, WHITE.scale(1, .55), 'right');
 }
 
 async function showCredits()
@@ -1178,6 +1376,7 @@ function drawBoards(y)
   });
   y += 13;
   const handle = cachedAccount()?.profile?.handle;
+  const ox = (W - MIN_W)/2; // the columns below are laid out for the narrowest view; center them in wider ones
 
   if (boardTab == 'you')
   {
@@ -1189,9 +1388,9 @@ function drawBoards(y)
     for (const period of ['weekly', 'daily', 'alltime'])
     {
       const b = myStats.boards[period];
-      drawPixelText(TAB_NAMES[period], 60, y, 1, SKY[6], 'left');
-      drawPixelText(b.rank ? ordinal(b.rank) + ' OF ' + b.players : '-', 180, y, 1, WHITE, 'right');
-      drawPixelText(fmt(b.score), 262, y, 1, GOLD, 'right');
+      drawPixelText(TAB_NAMES[period], ox + 60, y, 1, SKY[6], 'left');
+      drawPixelText(b.rank ? ordinal(b.rank) + ' OF ' + b.players : '-', ox + 180, y, 1, WHITE, 'right');
+      drawPixelText(fmt(b.score), ox + 262, y, 1, GOLD, 'right');
       y += 10;
     }
     drawPixelText(myStats.totals.runs + (myStats.totals.runs == 1 ? ' RUN  ' : ' RUNS  ') + fmt(myStats.totals.meters) + ' M RIDDEN', W/2, y + 4, 1, WHITE.scale(.8, 1), 'center');
@@ -1206,19 +1405,19 @@ function drawBoards(y)
   {
     const mine = e.handle == handle;
     const color = mine ? (clock % .5 < .3 ? GOLD : TRAIL) : e.rank == 1 ? GOLD : WHITE.scale(.85, 1);
-    drawPixelText(e.rank + '.', 58, y, 1, color, 'right');
-    drawPixelText(e.initials, 64, y, 1, mine ? color : TRAIL, 'left');
-    drawPixelText(e.handle, 84, y, 1, color, 'left');
-    drawPixelText(fmt(e.score), 262, y, 1, color, 'right');
+    drawPixelText(e.rank + '.', ox + 58, y, 1, color, 'right');
+    drawPixelText(e.initials, ox + 64, y, 1, mine ? color : TRAIL, 'left');
+    drawPixelText(e.handle, ox + 84, y, 1, color, 'left');
+    drawPixelText(fmt(e.score), ox + 262, y, 1, color, 'right');
     y += 9;
   }
   // you, when you're further down the board
   const me = board.me;
   if (me?.rank && me.rank > rows.length)
   {
-    drawPixelText(me.rank + '.', 58, y, 1, GOLD, 'right');
-    drawPixelText(handle, 84, y, 1, GOLD, 'left');
-    drawPixelText(fmt(me.score), 262, y, 1, GOLD, 'right');
+    drawPixelText(me.rank + '.', ox + 58, y, 1, GOLD, 'right');
+    drawPixelText(handle, ox + 84, y, 1, GOLD, 'left');
+    drawPixelText(fmt(me.score), ox + 262, y, 1, GOLD, 'right');
   }
 }
 
@@ -1250,7 +1449,7 @@ function drawOverlay()
   {
     drawTitle();
     drawMenu(titleMenu, 76, 11);
-    drawPixelText('WHEEL - STEER     SPACE - THROTTLE', W/2, 136, 1, WHITE.scale(.85, 1), 'center');
+    drawPixelText(touchFirst() ? 'DRAG LEFT - STEER     HOLD RIGHT - GO' : 'WHEEL - STEER     SPACE - THROTTLE', W/2, 136, 1, WHITE.scale(.85, 1), 'center');
     drawPixelText('NEW COURSE EVERY SUNDAY', W/2, 146, 1, SKY[6], 'center');
   }
   else if (state == 'settings')
@@ -1258,7 +1457,7 @@ function drawOverlay()
     drawTitle();
     drawPixelText('SETTINGS', W/2, 76, 2, WHITE, 'center');
     drawMenu(settingsMenu, 96);
-    drawPixelText('WHEEL - MOVE   SPACE - CHANGE', W/2, 140, 1, WHITE.scale(.7, 1), 'center');
+    drawPixelText(touchFirst() ? 'TAP TO CHANGE' : 'WHEEL - MOVE   SPACE - CHANGE', W/2, 140, 1, WHITE.scale(.7, 1), 'center');
   }
   else if (state == 'pause')
   {
@@ -1355,7 +1554,7 @@ function gameUpdate()
   }
   else if (menu)
     updateMenu();
-  else if (state == 'play' && (keyWasPressed('Escape') || keyWasPressed('KeyP')))
+  else if (state == 'play' && (keyWasPressed('Escape') || keyWasPressed('KeyP') || pauseTapped()))
     setState('pause');
   else if (state == 'over' && stateTime > 1.6)
     afterRun();
@@ -1364,9 +1563,10 @@ function gameUpdate()
     setState('scores');
     scoresMenu.sel = 1;
   }
-  else if (state == 'watch' && (keyWasPressed('Escape') || keyWasPressed('Space') && stateTime > .5))
+  else if (state == 'watch' && (keyWasPressed('Escape') || (keyWasPressed('Space') || mouseWasPressed(0)) && stateTime > .5))
     setState('watchover'); // skip to the end card
 
+  if (fitPending && state != 'play' && state != 'pause') fitView();
   if (state != 'pause')
   {
     updateRun();
@@ -1392,7 +1592,7 @@ function gameRender()
   drawOverlay();
 }
 
-setCanvasFixedSize(vec2(W, H));
+fitView();
 setCanvasPixelated(true);
 glSetAntialias(false);
 setDebugWatermark(false);

@@ -3,9 +3,9 @@ import { createCourse, createRun, stepRun, trailLane, createRecorder, record, en
   seededRandom, STEER_UNITS, MAX_STEER, START_REL } from '../src/sim.js';
 
 // a bot that roughly follows the trail and holds its place, with some noise so runs differ
-export function botRun(week, seed)
+export function botRun(week, seed, viewW=320)
 {
-  const rand = seededRandom(seed), course = createCourse(week), run = createRun(course), rec = createRecorder();
+  const rand = seededRandom(seed), course = createCourse(week), run = createRun(course, { viewW }), rec = createRecorder(viewW);
   const skill = rand(.3, 1);
   while (!run.dead && run.frame < 60*60*10)
   {

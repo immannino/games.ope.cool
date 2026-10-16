@@ -57,6 +57,13 @@
 
   <style>
     html, body { margin: 0; height: 100%; background: #1e0b3a; overflow: hidden; }
+    /* the game owns every touch: no scrolling, zooming, pull-to-refresh or long-press menus */
+    html, body, canvas { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    /* phones held upright get asked to turn sideways */
+    #rotate { display: none; position: fixed; inset: 0; z-index: 20; place-content: center; gap: 12px; text-align: center;
+      background: #1e0b3a; color: #ffd34a; font: 700 18px/1.4 ui-monospace, Menlo, monospace; padding: 24px; }
+    #rotate span { font-size: 48px; }
+    @media (orientation: portrait) and (pointer: coarse) { #rotate { display: grid; } }
     /* readable by search engines and screen readers, invisible on screen (the game draws everything on a canvas) */
     .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   </style>
@@ -71,6 +78,7 @@
     <p>Music: "Spice Dream" by nic and reuben. Inspired by Black Emperor by BumbleBear Games.</p>
   </main>
   <noscript>Spice Dreamer needs JavaScript to run.</noscript>
+  <div id="rotate" aria-hidden="true"><span>⟲</span>Turn your phone sideways to ride</div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

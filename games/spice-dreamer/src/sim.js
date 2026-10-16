@@ -6,13 +6,18 @@
 // and the leaderboard API replays a run's recorded inputs through this same file to verify a score.
 
 export const DT = 1/60;                  // fixed step, matches the engine's update rate
-export const LANES = 20;                 // playable depth: lane 0 is nearest the camera, lane 20 farthest
+export const LANES = 26;                 // playable depth: lane 0 is nearest the camera, lane 26 farthest
 export const METERS = 2;                 // meters per world unit
 export const START_REL = 8;              // worm start position relative to the camera center (world units)
-export const BACK_LIMIT = -31, FRONT_LIMIT = 31;  // past these the worm has left the screen
+// The view: how the game projects the world onto the screen. The sim needs it because the run ends when
+// the worm's head (its brain) leaves the player's screen, and screens differ in width.
+export const PPU = 5;                    // pixels per world unit at lane 0
+export const depthScale = L => 1 - L*.01; // farther lanes are drawn a little smaller
+export const HEAD_R = 1.7;               // the head's radius, world units
+export const MIN_VIEW_W = 320, MAX_VIEW_W = 480; // view widths in pixels (it's always 180 tall)
 export const STEER_UNITS = 32;           // steering input is quantized to 1/32 of a lane per frame
 export const MAX_STEER = 5*STEER_UNITS;  // most a single frame can steer
-export const SIM_VERSION = 1;            // bump whenever a change here would alter replays
+export const SIM_VERSION = 3;            // bump whenever a change here would alter replays (3: head leaves the player's screen; 2: Fremen lines, wide trail, eased steering)
 
 ///////////////////////////////////////////////////////////////////////////////
 // deterministic math
@@ -66,10 +71,10 @@ export const weekNumber = (now=Date.now()) => Math.floor((now/864e5 + 4)/7);
 // progression — everything scales with meters travelled
 //
 //   0m     open sands: wide and twisty but forgiving, nothing in the way. Learn to steer.
-//   450m   first fence. Fences stay sparse (~600m apart) until FENCE_RAMP (~3000 score).
+//   600m   first Fremen line, standing along the trail's edge like a guardrail.
 //   700m+  trail breaks: stretches of deep sand you have to coast across.
 //   800m+  each stage raises the score multiplier, so pushing deeper is where the points are.
-//   1900m+ fences ramp up.  2500m+ chicanes (two fences from opposite sides).  3500m+ wrecks.
+//   2500m+ Fremen lines on both sides now and then.  3500m+ wrecked harvesters in the middle of the trail.
 //   The world speed never stops rising.
 //   Hazard timing is keyed to distance, not score, so changing the multipliers won't move it.
 
@@ -82,15 +87,16 @@ export const STAGES = [
 ];
 export const stageAt = m => { let i = 0; while (i + 1 < STAGES.length && m >= STAGES[i + 1].m) i++; return i; };
 
-export const baseSpeed = m => 35 + 40*(1 - dexp(-m/3000)) + m/1200; // the road's pace, keeps climbing forever
+export const baseSpeed = m => 45 + 45*(1 - dexp(-m/3000)) + m/1100; // the road's pace, keeps climbing forever
 // space is the throttle: it pushes past the road's pace, letting go slows toward a stop.
 // Matching the pace holds your place on screen; the further right you ride, the less road you see coming.
 const topSpeed = m => baseSpeed(m)*1.45;
 const surgeAccel = m => 20 + baseSpeed(m)*1.8;                     // twitchy on purpose: small taps matter
 const coastDecel = m => (12 + baseSpeed(m)*1.1)*lerp(.6, 1, ramp(m, 0, 1500));
-const trailWidthAt = m => 4.2 + 7*dexp(-m/2600);                   // lanes: ~11 at the start, ~8 at 2km, ~5 at 5km
+const trailWidthAt = m => 6.5 + 8*dexp(-m/3000);                   // lanes: ~14 at the start, ~10.5 at 2km, ~8 at 5km
 export const offTrailGrace = m => lerp(.8, .25, ramp(m, 0, 3000)); // seconds off the trail before the run ends
-const turnDemand = m => lerp(3, 12, ramp(m, 150, 5000));           // lanes/sec of steering the shifts ask for
+const turnDemand = m => lerp(4, 14, ramp(m, 150, 5000));           // lanes/sec of steering the shifts ask for
+const sharpChance = m => m < 300 ? 0 : lerp(.06, .2, ramp(m, 300, 5000)); // now and then the trail jogs hard
 const straightChance = m => lerp(.3, .1, ramp(m, 0, 4000));
 const flipChance = m => lerp(.4, .6, ramp(m, 0, 5000));            // how often the trail changes direction
 
@@ -102,16 +108,20 @@ const breakDrag = m => baseSpeed(m)*.9;                             // speed los
 // coasting distance from top speed is topSpeed^2/(2*drag) = ~1.17x the road pace; a break uses part of that
 const breakLength = m => lerp(.35, .7, ramp(m, FIRST_BREAK, 6000))*1.17*baseSpeed(m);
 
-export const FIRST_FENCE = 450;
-const FENCE_RAMP = 1900;                                            // ~3000 score: where fences start to get busy
-const hazardGap = m => m < FENCE_RAMP ? 600 : lerp(300, 90, ramp(m, FENCE_RAMP, 7000)); // meters between hazards
-const chicaneChance = m => m < 2500 ? 0 : lerp(.1, .45, ramp(m, 2500, 6500));
+const HAZARD_RAMP = 1900;                                           // ~3000 score: where hazards start to get busy
+const hazardGap = m => m < HAZARD_RAMP ? 600 : lerp(300, 90, ramp(m, HAZARD_RAMP, 7000)); // meters between hazards
 const wreckChance = m => m < 3500 ? 0 : lerp(.1, .3, ramp(m, 3500, 7000));
-const fenceCover = m => lerp(.35, .6, ramp(m, FENCE_RAMP, 6500));  // fraction of the trail a fence blocks
+// Fremen lines stand along a stretch of the trail's edge like guardrails: off the trail you normally get a
+// moment's grace, but brush a line of Fremen and the run is over
+export const FIRST_FREMEN = 600;
+const fremenGap = m => lerp(260, 120, ramp(m, FIRST_FREMEN, 6000));     // meters between lines
+const fremenLength = m => lerp(22, 55, ramp(m, FIRST_FREMEN, 6000));    // world units
 
-const ATTRACT_SPEED = 48;               // the title / screensaver worm cruises instead of speeding up forever
-const STEER_EASE = 1 - dexp(-22*DT);    // snappy: the worm goes where you roll it
-const HIT = .55;                         // how close to a fence's end counts as touching it
+const ATTRACT_SPEED = 60;               // the title / screensaver worm cruises instead of speeding up forever
+// steering eases in and out: the worm's lane chases a point that itself chases where you've rolled to.
+// Two of these chained make an S-curve, a soft start and a soft landing, and it's still ~90% there in 0.1s.
+const STEER_EASE = 1 - dexp(-42*DT);
+const HIT = .55;                         // how close to a hazard's edge counts as touching it
 
 ///////////////////////////////////////////////////////////////////////////////
 // the course — the spice trail, its breaks and its hazards, generated lazily as the camera moves.
@@ -165,7 +175,8 @@ export function extendTrail(course, toX)
       const maxDelta = turnDemand(m)*TRAIL_SEG/(baseSpeed(m)*1.5);
       if (rand() < flipChance(m)) course.trailDir = -course.trailDir;
       const straight = rand() < straightChance(m);
-      const size = rand() < .2 ? rand(1.1, 1.5) : rand(.35, 1); // mostly sweeps, sometimes a sharp jog
+      // mostly sweeps of varying size, now and then a sharp jog
+      const size = rand() < sharpChance(m) ? rand(2, 2.8) : rand() < .2 ? rand(1.1, 1.5) : rand(.35, 1);
       L = prev + (straight ? rand(-.2, .2) : course.trailDir*size)*maxDelta;
       if (L < lo || L > hi)
       {
@@ -186,13 +197,27 @@ export function trailLane(course, x)
   return .5*(2*p1 + (p2 - p0)*t + (2*p0 - 5*p1 + 4*p2 - p3)*t*t + (3*p1 - p0 - 3*p2 + p3)*t*t*t);
 }
 
-// a sand fence reaching in from one edge of the trail, leaving a gap on the other side
-function addFence(run, x, side, cover)
+// a line of Fremen along one edge of the trail from x0 to x1, following its curves
+// where a Fremen line stands: just outside the trail's edge
+export const fremenLane = (course, x, side) => trailLane(course, x) + side*(trailWidth(course, x)/2 + .4);
+
+function addFremenLine(run, x0, x1, side)
 {
-  const c = trailLane(run.course, x), w = trailWidth(run.course, x);
-  cover = Math.min(cover, 1 - 1.9/w); // always leave room to slip through
-  const edge = c + side*(w/2 + .5), inner = c + side*(w/2 - cover*w);
-  run.hazards.push({ kind: 'fence', x, L0: Math.min(edge, inner), L1: Math.max(edge, inner), side, halfX: .6 });
+  run.hazards.push({ kind: 'fremen', x: x1, x0, x1, side, seed: run.course.hazardRand(99) });
+}
+
+// Fremen lines come along on their own schedule, sometimes lining both sides as a corridor
+function spawnFremen(run, x)
+{
+  const course = run.course, rand = course.hazardRand, m = x*METERS;
+  const len = fremenLength(m)*rand(.8, 1.2);
+  if (!course.breaks.some(b => b.x1 > x - 10 && b.x0 < x + len + 10)) // they don't stand over a break
+  {
+    const side = rand() < .5 ? 1 : -1;
+    addFremenLine(run, x, x + len, side);
+    if (m > 2500 && rand() < .3) addFremenLine(run, x, x + len, -side);
+  }
+  return len;
 }
 
 function spawnHazard(run, x)
@@ -200,6 +225,7 @@ function spawnHazard(run, x)
   const course = run.course, rand = course.hazardRand;
   const m = x*METERS, c = trailLane(course, x), w = trailWidth(course, x);
   if (course.breaks.some(b => x > b.x0 - 20 && x < b.x1 + 25)) return;
+
   if (rand() < wreckChance(m))
   {
     // a wrecked harvester in the middle: pass on either side
@@ -207,30 +233,30 @@ function spawnHazard(run, x)
     run.hazards.push({ kind: 'wreck', x, L0: c - half, L1: c + half, halfX: 1.1, seed: rand(99) });
     return;
   }
-  const side = rand() < .5 ? 1 : -1;
-  addFence(run, x, side, fenceCover(m));
-  if (rand() < chicaneChance(m))
-    addFence(run, x + Math.max(9, baseSpeed(m)*.75), -side, fenceCover(m));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // a run
 
 // attract mode is the title screen: the worm follows the trail on its own and can't die or score
-export function createRun(course, { startMeters=0, attract=false }={})
+// viewW is the player's view width: the screen the head has to stay on
+export function createRun(course, { startMeters=0, attract=false, viewW=MIN_VIEW_W }={})
 {
   const x0 = startMeters/METERS;
   extendTrail(course, x0 + 200);
   const L = trailLane(course, x0), speed = baseSpeed(startMeters);
   return {
-    course, attract, x: x0, L, targetL: L, speed, frame: 0,
+    course, attract, x: x0, L, steerL: L, targetL: L, speed, frame: 0,
     throttle: false, inBreak: false, offTrail: false, offTime: 0,
     dead: false, deathReason: '', score: 0, stage: stageAt(startMeters),
     nextMilestone: Math.floor(startMeters/1000 + 1)*1000,
-    camX: x0 - START_REL, camSpeed: speed,
-    hazards: [], nextHazardX: Math.max(FIRST_FENCE/METERS, x0 + 40),
+    camX: x0 - START_REL, camSpeed: speed, viewW: clamp(Math.round(viewW), MIN_VIEW_W, MAX_VIEW_W),
+    hazards: [], nextHazardX: Math.max(HAZARD_RAMP/METERS, x0 + 40), nextFremenX: Math.max(FIRST_FREMEN/METERS, x0 + 60),
   };
 }
+
+// how far the head is from the middle of the screen, in pixels (negative is left)
+export const headScreenOffset = run => (run.x - run.camX)*PPU*depthScale(run.L);
 
 function die(run, reason, events)
 {
@@ -253,7 +279,8 @@ export function stepRun(run, throttle, steer)
     run.targetL = clamp(run.targetL + clamp(steer | 0, -MAX_STEER, MAX_STEER)/STEER_UNITS, -.5, LANES + .5);
   else if (run.attract)
     run.targetL = trailLane(course, run.x + 4);
-  run.L += (run.targetL - run.L)*STEER_EASE;
+  run.steerL += (run.targetL - run.steerL)*STEER_EASE;
+  run.L += (run.steerL - run.L)*STEER_EASE;
 
   // speed: space is the throttle, the road's pace keeps rising underneath it
   const meters = run.x*METERS, base = baseSpeed(meters);
@@ -284,10 +311,17 @@ export function stepRun(run, throttle, steer)
   run.camSpeed = run.dead ? approach(run.camSpeed, 0, 25*DT) : run.attract ? run.speed : baseSpeed(run.camX*METERS);
   run.camX += run.camSpeed*DT;
   extendTrail(course, run.camX + 160);
-  while (!run.attract && run.nextHazardX < run.camX + 75) // the attract worm can't hit anything, so it gets none
+  // the attract worm (title screen, screensaver) rides the middle of the trail and can't die: wrecks in the
+  // middle would just pass through it, so it gets none. Fremen lines stand outside the edge, so it keeps those.
+  while (!run.attract && run.nextHazardX < run.camX + 75)
   {
     spawnHazard(run, run.nextHazardX);
     run.nextHazardX += hazardGap(run.nextHazardX*METERS)/METERS*course.hazardRand(.75, 1.3);
+  }
+  while (run.nextFremenX < run.camX + 75)
+  {
+    const len = spawnFremen(run, run.nextFremenX);
+    run.nextFremenX += len + fremenGap(run.nextFremenX*METERS)/METERS*course.hazardRand(.7, 1.4);
   }
   run.hazards = run.hazards.filter(o => o.x > run.camX - 80);
   // old breaks are behind the camera for good; dropping them keeps endless screensaver runs fast
@@ -322,15 +356,23 @@ function checkRun(run, dx, meters, events)
     return die(run, 'SANK IN THE DEEP SAND', events);
 
   // drift off either side of the screen and the run is over
-  const rel = run.x - run.camX;
-  if (rel < BACK_LIMIT) return die(run, 'LEFT BEHIND', events);
-  if (rel > FRONT_LIMIT) return die(run, 'OVERSHOT THE ROAD', events);
+  // the head has to stay on screen: too slow and it slides off the left, too fast and it shoots off the right
+  const head = headScreenOffset(run), r = HEAD_R*PPU*depthScale(run.L), half = run.viewW/2;
+  if (head + r < -half) return die(run, 'LEFT BEHIND', events);
+  if (head - r > half) return die(run, 'OVERSHOT THE ROAD', events);
 
-  // fences and wrecks block a span of lanes at one spot on the trail
+  // Fremen lines guard stretches of the trail's edge; wrecks block a span of lanes at one spot
   for (const o of run.hazards)
   {
+    if (o.kind == 'fremen')
+    {
+      if (run.x < o.x0 || run.x > o.x1) continue;
+      const line = fremenLane(run.course, run.x, o.side);
+      if (o.side*(run.L - line) > -HIT) return die(run, 'RAN INTO THE FREMEN', events);
+      continue;
+    }
     if (Math.abs(o.x - run.x) < o.halfX && run.L > o.L0 - HIT && run.L < o.L1 + HIT)
-      return die(run, o.kind == 'fence' ? 'CRASHED THROUGH A FENCE' : 'HIT A WRECKED HARVESTER', events);
+      return die(run, 'HIT A WRECKED HARVESTER', events);
     if (!o.passed && o.x < run.x - o.halfX)
     {
       o.passed = true;
@@ -347,9 +389,9 @@ function checkRun(run, dx, meters, events)
 
 ///////////////////////////////////////////////////////////////////////////////
 // replays — a run's inputs, run-length encoded. "v1|" then comma separated runs of
-// <frames in base36><T or N for throttle><steer in base36>, e.g. "v1|2sN0,4T0,1T-a"
+// <frames in base36><T or N for throttle><steer in base36>, after the view width, e.g. "v3|w390|2sN0,4T0,1T-a"
 
-export function createRecorder() { return { runs: [] }; }
+export function createRecorder(viewW=MIN_VIEW_W) { return { viewW: clamp(Math.round(viewW), MIN_VIEW_W, MAX_VIEW_W), runs: [] }; }
 
 export function record(rec, throttle, steer)
 {
@@ -359,28 +401,31 @@ export function record(rec, throttle, steer)
 }
 
 export const encodeReplay = rec =>
-  'v' + SIM_VERSION + '|' + rec.runs.map(([n, t, s]) => n.toString(36) + (t ? 'T' : 'N') + s.toString(36)).join(',');
+  'v' + SIM_VERSION + '|w' + rec.viewW + '|' + rec.runs.map(([n, t, s]) => n.toString(36) + (t ? 'T' : 'N') + s.toString(36)).join(',');
 
+// returns { viewW, runs }
 export function decodeReplay(str)
 {
-  const [version, body] = String(str).split('|');
+  const [version, width, body] = String(str).split('|');
   if (version != 'v' + SIM_VERSION) throw new Error('unsupported replay version ' + version);
-  if (!body) return [];
-  return body.split(',').map(part =>
+  const viewW = Number(/^w(\d+)$/.exec(width || '')?.[1]);
+  if (!(viewW >= MIN_VIEW_W && viewW <= MAX_VIEW_W)) throw new Error('bad view width ' + width);
+  if (!body) return { viewW, runs: [] };
+  return { viewW, runs: body.split(',').map(part =>
   {
     const m = /^([0-9a-z]+)([TN])(-?[0-9a-z]+)$/.exec(part);
     if (!m) throw new Error('bad replay segment ' + part);
     const n = parseInt(m[1], 36), s = parseInt(m[3], 36);
     if (!(n > 0) || Math.abs(s) > MAX_STEER) throw new Error('bad replay values ' + part);
     return [n, m[2] == 'T' ? 1 : 0, s];
-  });
+  }) };
 }
 
 // replays a run from the start of a week's course. A valid replay ends on exactly the frame the run died.
 export function replayRun(week, replay, maxFrames=60*60*30)
 {
-  const runs = typeof replay == 'string' ? decodeReplay(replay) : replay;
-  const run = createRun(createCourse(week));
+  const { viewW, runs } = decodeReplay(replay);
+  const run = createRun(createCourse(week), { viewW });
   for (const [n, t, s] of runs)
     for (let i = 0; i < n; i++)
     {
