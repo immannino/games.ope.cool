@@ -1,0 +1,17 @@
+{
+  "name": "Shut the Box",
+  "short_name": "Shut the Box",
+  "description": "The classic dice and tiles game in a walnut box with green felt. Physics dice, a quick coffee-break game.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "background_color": "#1a0f08",
+  "theme_color": "#1a0f08",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

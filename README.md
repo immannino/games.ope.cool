@@ -5,6 +5,7 @@ Small browser games, hosted together on GitHub Pages.
 ```
 site/            static landing page (copied as-is to the site root)
 games/<slug>/    one standalone Vite + LittleJS project per game, served at /<slug>/
+packages/        code shared between games (dice-physics: rigid-body dice, rigged rolls, shake input, three.js dice)
 api/             accounts + leaderboards API (Cloudflare Worker + Turso), see api/README.md
 scripts/         local helpers
 ```
@@ -19,7 +20,7 @@ cd games/spice-dreamer && npm install && npm run dev   # work on one game
 ## Adding a game
 
 1. Put the project in `games/<slug>/` with its own `package.json` + `package-lock.json` and a `build` script that outputs to `dist/`.
-2. Set `base: './'` in its `vite.config.js` so assets resolve under `/<slug>/`.
+2. Set `base: './'` in its `vite.config.js` so assets resolve under `/<slug>/`. A game that uses `packages/` aliases it in `vite.config.js` (see shut-the-box) and passes its own copies of `three` / `cannon-es` in.
 3. Add a card to `site/index.html`.
 
 CI picks up new folders automatically.

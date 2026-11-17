@@ -1,0 +1,8 @@
+{
+  "name": "dice-physics",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared dice for the games in this repo: a rigid-body table, rigged outcomes, shake/tilt input and a three.js view. Dependency-free: each game passes in cannon-es and three.",
+  "main": "src/index.js"
+}

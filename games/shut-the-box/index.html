@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Shut the Box: the classic dice and tiles game</title>
+  <meta name="description" content="Roll real physics dice and shut the tiles in a walnut box with green felt. The classic pub game for one, a quick coffee break. Shake your phone to roll. Free in your browser.">
+  <link rel="canonical" href="https://games.ope.cool/shut-the-box/">
+  <meta name="theme-color" content="#1a0f08">
+  <meta name="color-scheme" content="dark">
+
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Shut the Box">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="games.ope.cool">
+  <meta property="og:title" content="Shut the Box">
+  <meta property="og:description" content="Roll physics dice and shut the tiles. A walnut box, green felt and a quick game to fill a coffee break. Free in your browser.">
+  <meta property="og:url" content="https://games.ope.cool/shut-the-box/">
+  <meta property="og:image" content="https://games.ope.cool/shut-the-box/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Shut the Box: a walnut box with nine numbered maple tiles, two dice and green felt.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Shut the Box">
+  <meta name="twitter:description" content="Roll physics dice and shut the tiles in a walnut box.">
+  <meta name="twitter:image" content="https://games.ope.cool/shut-the-box/og.jpg">
+  <meta name="twitter:image:alt" content="Shut the Box: a walnut box with nine numbered maple tiles, two dice and green felt.">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Shut the Box",
+    "url": "https://games.ope.cool/shut-the-box/",
+    "image": "https://games.ope.cool/shut-the-box/og.jpg",
+    "description": "The classic dice and tiles game in a walnut box with green felt, with physics dice you can shake and flick.",
+    "genre": ["Dice", "Puzzle", "Board game"],
+    "gamePlatform": "Web browser",
+    "applicationCategory": "Game",
+    "operatingSystem": "Any",
+    "playMode": "SinglePlayer",
+    "inLanguage": "en",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "isPartOf": { "@type": "WebSite", "name": "games.ope.cool", "url": "https://games.ope.cool/" }
+  }
+  </script>
+
+  <style>
+    html, body { margin: 0; height: 100%; background: #140c07; overflow: hidden; }
+    html, body, canvas { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    .arc-wrap input, .arc-wrap button, .stb-wrap button { touch-action: manipulation; -webkit-user-select: auto; user-select: auto; }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <main class="sr">
+    <h1>Shut the Box</h1>
+    <p>The classic dice and tiles game. Roll two dice and shut any open tiles from 1 to 9 that add up to your roll. Keep rolling until no tiles fit,
+      then count the tiles left open: the fewer the better. Shut all nine and you shut the box. A match is three rounds. Pick up the dice and flick them, or shake your phone to roll; hints light the tiles that can still score.</p>
+  </main>
+  <noscript>Shut the Box needs JavaScript to run.</noscript>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

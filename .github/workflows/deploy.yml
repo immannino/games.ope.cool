@@ -6,11 +6,13 @@ on:
     branches: [main]
     paths:
       - 'games/**'
+      - 'packages/**'
       - 'site/**'
       - '.github/workflows/deploy.yml'
   pull_request:
     paths:
       - 'games/**'
+      - 'packages/**'
       - 'site/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
@@ -44,13 +46,13 @@ jobs:
       - uses: actions/checkout@v5
 
       # The build output is cached under a hash of the game's own files. If nothing in
-      # games/<game>/ changed since the last build, dist/ is restored and the build is skipped.
+      # games/<game>/ or the shared packages/ changed since the last build, dist/ is restored and the build is skipped.
       # Bump the "v1" to force every game to rebuild (e.g. after changing the Node version).
       - id: cache
         uses: actions/cache@v4
         with:
           path: games/${{ matrix.game }}/dist
-          key: dist-v1-${{ matrix.game }}-${{ hashFiles(format('games/{0}/**', matrix.game)) }}
+          key: dist-v1-${{ matrix.game }}-${{ hashFiles(format('games/{0}/**', matrix.game), 'packages/**') }}
 
       - if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/setup-node@v5
